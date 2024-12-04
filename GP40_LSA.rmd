@@ -1,0 +1,291 @@
+---
+title: "GP40 LSA"
+author: "Yamé Meyvaert"
+date: "2024-11-28"
+output: html_document
+---
+
+## Loading the data
+
+Installing and loading the libraries:
+
+```{r}
+#install.packages("tidyverse")
+library(tidyverse)
+library(readxl)
+
+```
+
+```{r}
+cancer_dataset <- read_csv('metadata.csv')
+
+cancer_abundances <- read_excel('abundances.xlsx')
+```
+
+###Data exploration Metadata
+
+Checking datatypes:
+```{r}
+str(cancer_dataset)
+```
+
+Converting datatypes (cleaning the data)
+```{r}
+cancer_dataset$Gender <- as.factor(cancer_dataset$Gender)
+cancer_dataset$Proteomic_Subtype <- as.factor(cancer_dataset$Proteomic_Subtype)
+cancer_dataset$`Diameter_of_tumor_(cm)` <- as.numeric(cancer_dataset$`Diameter_of_tumor_(cm)`)
+cancer_dataset$Survival_status <- as.factor(cancer_dataset$Survival_status)
+cancer_dataset$Recurr_status <- as.factor(cancer_dataset$Recurr_status)
+
+#checking for correct converting
+str(cancer_dataset)
+```
+
+Check the header
+```{r}
+head(cancer_dataset)
+```
+
+Checking for missing values:
+```{r}
+missing_values <- colSums(is.na(cancer_dataset))
+print(missing_values)
+```
+
+Interpretation: 7 missing values in Diameter_of_tumor_(cm) column and 10 in Tumor_cellularity_(%).
+
+Missing data visualisation:
+```{r}
+#install.packages("naniar")
+library(naniar)
+
+vis_miss(cancer_dataset)       # Heatmap van missende waarden
+gg_miss_var(cancer_dataset)    # Barplot van missende waarden per kolom
+```
+
+Basic stats for each of the columns:
+```{r}
+summary(cancer_dataset)
+```
+
+Distribution of the data
+```{r}
+cancer_dataset %>%
+  summarise(across(where(is.numeric), list(mean = mean, sd = sd, min = min, max = max), na.rm = TRUE))
+```
+
+```{r}
+cancer_dataset%>%
+  count(Proteomic_Subtype)
+```
+
+###Data exploration Abundances data
+
+```{r}
+str(cancer_abundances)
+```
+
+Check the header
+```{r}
+head(cancer_abundances)
+```
+
+```{r}
+cancer_abundances %>%
+  mutate(missing_count = rowSums(is.na(.)))%>%
+  select(ID, missing_count)
+```
+
+```{r}
+summary(cancer_abundances)
+```
+
+
+Hypothese 1:
+=> Heeft de proteomic subtype een correlatie met de Tumor cellularity:
+Hypotheses:
+-Null Hypothesis (H0): The median Tumor_cellularity_(%) is the same across all Proteomic_Subtype groups.
+-Alternative Hypothesis (Ha): At least one group has a different median Tumor_cellularity_(%).
+
+Missing values:
+```{r}
+vis_miss(cancer_dataset)       # Heatmap van missende waarden
+gg_miss_var(cancer_dataset)    # Barplot van missende waarden per kolom
+```
+Check how many NA values in Tumor cellularity:
+```{r}
+sum(is.na(cancer_dataset$`Tumor_cellularity_(%)`))
+```
+Random? Or not random?
+```{r}
+table(is.na(cancer_dataset$Proteomic_Subtype), is.na(cancer_dataset$`Tumor_cellularity_(%)`))
+
+# Contingency table for missingness
+missing_table <- table(is.na(cancer_dataset$Proteomic_Subtype), is.na(cancer_dataset$`Tumor_cellularity_(%)`))
+
+# Chi-squared test
+chisq.test(missing_table)
+
+```
+INterpretation: the p-value is below 0.05 which means that the missingness of the values is not random and therefore we can't remove them from the column. 
+
+```{r}
+#install.packages("naniar")
+library(naniar)
+
+#Plot Missingness:
+
+# Check missing data patterns
+vis_miss(cancer_dataset)  # naniar package
+
+```
+
+Replace NA with median:
+```{r}
+# Calculate the median while ignoring NA values
+median_value <- median(cancer_dataset$`Tumor_cellularity_(%)`, na.rm = TRUE)
+
+# Replace NA values with the calculated median
+cancer_dataset$`Tumor_cellularity_(%)`[is.na(cancer_dataset$`Tumor_cellularity_(%)`)] <- median_value
+
+# Print the column to check if NAs were replaced
+print(cancer_dataset$`Tumor_cellularity_(%)`)
+
+```
+
+Outliers eruitfilteren:
+```{r}
+ggplot(cancer_dataset, aes(x = Proteomic_Subtype, y = `Tumor_cellularity_(%)`, fill = Proteomic_Subtype)) +
+  geom_boxplot(outlier.color = "purple", outlier.shape = 8) +
+  theme_minimal() +
+  labs(title = "Tumor Cellularity by Proteomic Subtype", y = "Tumor Cellularity (%)", x = "Proteomic Subtype")
+
+```
+
+```{r}
+df <- cancer_dataset %>% filter(`Tumor_cellularity_(%)` < quantile(`Tumor_cellularity_(%)`, 0.99))
+ggplot(cancer_dataset, aes(x = Proteomic_Subtype, y = `Tumor_cellularity_(%)`)) +
+  geom_boxplot(fill = "lightpink") +
+  theme_minimal()
+```
+ => there is no difference when filtered on 99% quantile. 
+
+
+###Data visualisation
+
+Histogram for numerical values
+```{r}
+ggplot(cancer_dataset, aes(x = `Tumor_cellularity_(%)`)) +
+  geom_histogram(binwidth = 5, fill = "red", color = "black") +
+  theme_minimal()
+```
+
+```{r}
+cancer_dataset %>% ggplot(aes(x = `Tumor_cellularity_(%)` , fill = Proteomic_Subtype)) + geom_histogram() +theme_classic()
+```
+
+Boxplot:
+```{r}
+ggplot(cancer_dataset, aes(x = Proteomic_Subtype, y = `Tumor_cellularity_(%)`)) +
+  geom_boxplot(fill = "lightgreen") +
+  theme_minimal()
+```
+Normal distribution per Subtype:
+```{r}
+library(dplyr)
+
+# Perform Shapiro-Wilk test for normality on each subtype
+normality_results <- cancer_dataset %>%
+  filter(!is.na(`Tumor_cellularity_(%)`)) %>%  # Remove rows with NA values
+  group_by(Proteomic_Subtype) %>%             # Group by subtype
+  summarise(
+    shapiro_p_value = shapiro.test(`Tumor_cellularity_(%)`)$p.value
+  )
+
+print(normality_results)
+
+```
+A small p-value (< 0.05) suggests the data is not normally distributed.
+
+Visualisation:
+```{r}
+ggplot(cancer_dataset, aes(x = `Tumor_cellularity_(%)`, fill = Proteomic_Subtype)) +
+  geom_density(alpha = 0.5) +
+  labs(title = "Density Plot of Tumor Cellularity by Subtype", 
+       x = "Tumor Cellularity (%)",
+       y = "Density") +
+  theme_minimal()
+```
+Tumor cellullarity data are not normally ditributed per Proteomic Subtype. (Log-transformations are not an improvement, it was tested). 
+ANOVA can not be performed, because the data is not normally distributed. 
+
+P-values testing: 
+```{r}
+normCel <- cancer_dataset %>%
+  group_by(Proteomic_Subtype) %>%
+  summarize(p_value = t.test(`Tumor_cellularity_(%)`)$p.value)
+
+# Print results
+print(normCel)
+```
+
+
+Kruskal-Wallis test
+```{r}
+kruskal.test(`Tumor_cellularity_(%)` ~ Proteomic_Subtype, data = cancer_dataset)
+```
+Interpretation: With a p-value of 
+0.01354, which is less than the common significance level (α=0.05), the test result is statistically significant.
+This means that there is strong evidence to reject the null hypothesis.
+At least one of the Proteomic_Subtype groups has a significantly different median Tumor_cellularity_(%).
+
+Since the Kruskal-Wallis test is an omnibus test, it doesn't specify which groups differ. To identify the specific groups with differing medians, you can perform pairwise post-hoc tests: (post-hoc tests are needed to specify which groups differ)
+
+```{r}
+pairwise.wilcox.test(cancer_dataset$`Tumor_cellularity_(%)`, 
+                     cancer_dataset$Proteomic_Subtype, 
+                     p.adjust.method = "bonferroni")
+
+
+#Visualisation:
+ggplot(cancer_dataset, aes(x = Proteomic_Subtype, y = `Tumor_cellularity_(%)`, fill = Proteomic_Subtype)) +
+  geom_boxplot() +
+  theme_minimal() +
+  labs(title = "Tumor Cellularity by Proteomic Subtype", y = "Tumor Cellularity (%)")
+
+```
+Interpretation: Results Interpretation
+- S-I vs S-II:
+Adjusted p-value = 1.000.
+There is no statistically significant difference in the median Tumor_cellularity_(%) between subtypes S-I and S-II.
+
+- S-I vs S-III:
+Adjusted p-value = 0.059.
+This is borderline significant at the 0.05 level. You might consider the difference to be marginal or weak evidence against the null hypothesis.
+
+- S-II vs S-III:
+Adjusted p-value = 0.026.
+This indicates a statistically significant difference in the median Tumor_cellularity_(%) between subtypes S-II and S-III at the 0.05 level.
+
+The warning occurs due to ties in Tumor_cellularity_(%), which is common with real-world data. This doesn't invalidate your results:
+
+Monte Carlo approximation for more robust p-values:
+```{r}
+pairwise.wilcox.test(cancer_dataset$`Tumor_cellularity_(%)`, 
+                     cancer_dataset$Proteomic_Subtype, 
+                     p.adjust.method = "bonferroni", 
+                     exact = FALSE)
+
+```
+With the Monte-Carlo approximation there is no difference in p-values. When ties are few and the data size is reasonable, the normal approximation (used in exact = FALSE) provides a good estimate of the p-values. Therefore thee approximate p-values provided by the pairwise Wilcox test are reliable and consistent with the results generated via Monte Carlo simulations.
+
+
+The Wilcoxon test is less sensitive to outliers.
+
+Hypothese 2:
+=> Welke eiwitten hebben invloed op de survival status
+==> 
+```{r}
+
+```
+
