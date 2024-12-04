@@ -261,7 +261,7 @@ There is no statistically significant difference in the median Tumor_cellularity
 
 - S-I vs S-III:
 Adjusted p-value = 0.059.
-This is borderline significant at the 0.05 level. You might consider the difference to be marginal or weak evidence against the null hypothesis.
+This is not significant at the 0.05 level. You might consider the difference to be marginal or weak evidence against the null hypothesis.
 
 - S-II vs S-III:
 Adjusted p-value = 0.026.
